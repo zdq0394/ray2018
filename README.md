@@ -2,6 +2,8 @@
 ## Ray
 Ray is a flexible, high-performance distributed execution framework.
 ### [安装](docs/installation.md)
+### Getting Started
+* [Tutorial](docs/tutorial.md)
 ### 设计
 * [An Overview of the Internals](docs/internal.md)
 * [Serialization in the Object Store](docs/serialization.md)
