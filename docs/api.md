@@ -85,5 +85,89 @@ ray.remote(*args, **kwargs)
 * checkpoint_interval (int) – The number of tasks to run between checkpoints of the actor state.
 
 ## Getting values from object IDs
+可以以`Object IDs`作为参数，调用`ray.get`将object IDs转换为objects。`ray.get`可以既可以接受一个objectID作为参数，也可以接受 `a list of object IDs`作为参数。 
+```python
+@ray.remote
+def f():
+    return {'key1': ['value']}
 
+# Get one object ID.
+ray.get(f.remote())  # {'key1': ['value']}
+
+# Get a list of object IDs.
+ray.get([f.remote() for _ in range(2)])  # [{'key1': ['value']}, {'key1': ['value']}]
+```
+
+### Numpy arrays
+Numpy arrays比其他数据类型效率更高。只要可能，首先使用numpy array。
+
+`Any numpy arrays that are part of the serialized object will not be copied out of the object store. `
+它们将一直存在于object store，反序列化后的对象里包含有指针，指向`object store's memeory`的相应地址。
+
+`Object store`中的objects是不可变的，这意味着如果一个`remote function`的返回值是`numpy arrays`的话，如果要改变它的值，需要首先复制一份。
+
+```python
+ray.get(object_ids, worker=<ray.worker.Worker object>)
+```
+该方法从`object store`中获取`remote object`或者`a list of remote objects`。
+该方法会block，直到相应的objects在local object store是可用的。
+
+## Putting objects in the object store
+把一个object放入object store的最主要的方式就是通过一个task的返回值。
+也可以直接使用`ray.put`把一个object放入obejct store。
+```python
+x_id = ray.put(1)
+ray.get(x_id)  # 1
+```
+使用`ray.put`的最大场景就是需要把`a large object`传递给多个tasks。首先把object存入object store，然后把返回的object ID传递给task，这样只需要复制一次大对象即可。否则每个任务都要复制一次。
+```python
+import numpy as np
+
+@ray.remote
+def f(x):
+    pass
+
+x = np.zeros(10 ** 6)
+
+# Alternative 1: Here, x is copied into the object store 10 times.
+[f.remote(x) for _ in range(10)]
+
+# Alternative 2: Here, x is copied into the object store once.
+x_id = ray.put(x)
+[f.remote(x_id) for _ in range(10)]
+```
+
+## Waiting for a subset of tasks to finish
+有时候经常需要基于不同的task完成的时间对正在执行的task进行调整。`It is often desirable to adapt the computation being done based on when different tasks finish. `
+
+Ray引入了语句`ray.wait`。
+
+```python
+ray.wait(object_ids, num_returns=1, timeout=None, worker=<ray.worker.Worker object>)
+```
+`Return a list of IDs that are ready and a list of IDs that are not`。
+
+如果设置了`timeout`，以下条件任何一个满足，函数会返回：
+* the requested number of IDs are ready
+* the timeout is reached
+whichever occurs first。
+如果没设置`timeout`，函数直到请求的num_returns个对象可用之后才返回。
+
+```python
+@ray.remote
+def f():
+    return 1
+
+# Start 5 tasks.
+remaining_ids = [f.remote() for i in range(5)]
+# Whenever one task finishes, start a new one.
+for _ in range(100):
+    ready_ids, remaining_ids = ray.wait(remaining_ids)
+    # Get the available object and do something with it.
+    print(ray.get(ready_ids))
+    # Start a new task.
+    remaining_ids.append(f.remote())
+```
+## Viewing errors
+`ray.error_info(worker=<ray.worker.Worker object>)`返回failed task的信息。
 
